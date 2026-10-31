@@ -1,3 +1,4 @@
+
 CREATE OR ALTER PROC [SQM_CATALOGS].[USP_Status]
 (
     @i_statusId INT = NULL,
@@ -16,7 +17,14 @@ CREATE OR ALTER PROC [SQM_CATALOGS].[USP_Status]
 )
 AS
 BEGIN
+    SET NOCOUNT ON;
+
     DECLARE @w_totalRows INT;
+    DECLARE @w_Offset BIGINT;
+
+    SET @o_Numero = NULL;
+    SET @o_MensajeTecnico = NULL;
+    SET @o_MensajeUsuario = NULL;
 
     IF @i_statusCreationDate IS NULL
         SET @i_statusCreationDate = GETDATE();
@@ -27,38 +35,39 @@ BEGIN
     -- INSERTAR STATUS --
     IF @w_Accion = 'I'
     BEGIN
-        IF ISNULL(@i_statusName,'') = ''
+        IF ISNULL(@i_statusName, '') = ''
         BEGIN
             SET @o_Numero = 400;
             SET @o_MensajeUsuario = 'EL NOMBRE DEL STATUS ES OBLIGATORIO';
-        END;
-        ELSE IF ISNULL(@i_statusCreatorId,0) = 0
+        END
+        ELSE IF ISNULL(@i_statusCreatorId, 0) = 0
         BEGIN
             SET @o_Numero = 400;
             SET @o_MensajeUsuario = 'EL ID DEL CREADOR ES OBLIGATORIO';
-        END;
+        END
         ELSE
         BEGIN
-            BEGIN TRANSACTION TRX_INS_STATUS;
             BEGIN TRY
+                BEGIN TRANSACTION TRX_INS_STATUS;
+
                 INSERT INTO [SQM_CATALOGS].[TBL_Status]
-(
-    statusName,
-    statusCreationDate,
-    statusCreatorId,
-    statusModificationDate,
-    statusModificatorId,
-    statusEnable
-)
-VALUES
-(
-    @i_statusName,
-    @i_statusCreationDate,
-    @i_statusCreatorId,
-    @i_statusModificationDate,
-    NULL,
-    1
-);
+                (
+                    statusName,
+                    statusCreationDate,
+                    statusCreatorId,
+                    statusModificationDate,
+                    statusModificatorId,
+                    statusEnable
+                )
+                VALUES
+                (
+                    @i_statusName,
+                    @i_statusCreationDate,
+                    @i_statusCreatorId,
+                    @i_statusModificationDate,
+                    NULL,
+                    1
+                );
 
                 COMMIT TRANSACTION TRX_INS_STATUS;
 
@@ -66,10 +75,18 @@ VALUES
                 SET @o_MensajeUsuario = 'STATUS REGISTRADO CORRECTAMENTE';
             END TRY
             BEGIN CATCH
-                ROLLBACK TRANSACTION TRX_INS_STATUS;
+                IF XACT_STATE() <> 0
+                    ROLLBACK TRANSACTION TRX_INS_STATUS;
+
                 SET @o_Numero = 500;
                 SET @o_MensajeUsuario = 'ERROR AL REGISTRAR STATUS';
-                SET @o_MensajeTecnico = CONCAT_WS(' - ', 'ERROR AL REGISTRAR STATUS', ERROR_PROCEDURE(), ERROR_LINE(), ERROR_MESSAGE());
+                SET @o_MensajeTecnico = CONCAT_WS(
+                    ' - ',
+                    'ERROR AL REGISTRAR STATUS',
+                    ERROR_PROCEDURE(),
+                    ERROR_LINE(),
+                    ERROR_MESSAGE()
+                );
             END CATCH
         END
     END
@@ -77,42 +94,57 @@ VALUES
     -- UPDATE STATUS --
     ELSE IF @w_Accion = 'U'
     BEGIN
-        IF ISNULL(@i_statusId,0) = 0
+        IF ISNULL(@i_statusId, 0) = 0
         BEGIN
             SET @o_Numero = 400;
             SET @o_MensajeUsuario = 'EL ID DEL STATUS ES OBLIGATORIO';
-        END;
-        ELSE IF ISNULL(@i_statusModificatorId,0) = 0
+        END
+        ELSE IF ISNULL(@i_statusModificatorId, 0) = 0
         BEGIN
             SET @o_Numero = 400;
             SET @o_MensajeUsuario = 'EL ID DEL MODIFICADOR ES OBLIGATORIO';
-        END;
-        ELSE IF NOT EXISTS (SELECT 1 FROM [SQM_CATALOGS].[TBL_Status] (NOLOCK) WHERE statusId = @i_statusId)
-        BEGIN
-            SET @o_Numero = 404;
-            SET @o_MensajeUsuario = 'EL STATUS NO EXISTE';
-        END;
+        END
         ELSE
         BEGIN
-            BEGIN TRANSACTION TRX_UPD_STATUS;
             BEGIN TRY
+                BEGIN TRANSACTION TRX_UPD_STATUS;
+
                 UPDATE [SQM_CATALOGS].[TBL_Status]
-                SET statusName = COALESCE(@i_statusName, statusName),
+                SET
+                    statusName = COALESCE(@i_statusName, statusName),
                     statusModificationDate = @i_statusModificationDate,
                     statusModificatorId = @i_statusModificatorId,
                     statusEnable = COALESCE(@i_statusEnable, statusEnable)
                 WHERE statusId = @i_statusId;
 
-                COMMIT TRANSACTION TRX_UPD_STATUS;
+                IF @@ROWCOUNT = 0
+                BEGIN
+                    ROLLBACK TRANSACTION TRX_UPD_STATUS;
 
-                SET @o_Numero = 200;
-                SET @o_MensajeUsuario = 'STATUS ACTUALIZADO CORRECTAMENTE';
+                    SET @o_Numero = 404;
+                    SET @o_MensajeUsuario = 'EL STATUS NO EXISTE';
+                END
+                ELSE
+                BEGIN
+                    COMMIT TRANSACTION TRX_UPD_STATUS;
+
+                    SET @o_Numero = 200;
+                    SET @o_MensajeUsuario = 'STATUS ACTUALIZADO CORRECTAMENTE';
+                END
             END TRY
             BEGIN CATCH
-                ROLLBACK TRANSACTION TRX_UPD_STATUS;
+                IF XACT_STATE() <> 0
+                    ROLLBACK TRANSACTION TRX_UPD_STATUS;
+
                 SET @o_Numero = 500;
                 SET @o_MensajeUsuario = 'ERROR AL ACTUALIZAR STATUS';
-                SET @o_MensajeTecnico = CONCAT_WS(' - ', 'ERROR AL ACTUALIZAR STATUS', ERROR_PROCEDURE(), ERROR_LINE(), ERROR_MESSAGE());
+                SET @o_MensajeTecnico = CONCAT_WS(
+                    ' - ',
+                    'ERROR AL ACTUALIZAR STATUS',
+                    ERROR_PROCEDURE(),
+                    ERROR_LINE(),
+                    ERROR_MESSAGE()
+                );
             END CATCH
         END
     END
@@ -120,15 +152,20 @@ VALUES
     -- SELECT STATUS --
     ELSE IF @w_Accion = 'S'
     BEGIN
-        IF ISNULL(@i_PageNumber,0) <= 0 OR ISNULL(@i_RowsPerPage,0) <= 0
+        IF ISNULL(@i_PageNumber, 0) <= 0
+           OR ISNULL(@i_RowsPerPage, 0) <= 0
         BEGIN
             SET @o_Numero = 400;
             SET @o_MensajeUsuario = 'LOS PARAMETROS DE PAGINACION SON OBLIGATORIOS Y DEBEN SER MAYORES A CERO';
         END
         ELSE
         BEGIN
+            SET @w_Offset =
+                (CONVERT(BIGINT, @i_PageNumber) - 1)
+                * CONVERT(BIGINT, @i_RowsPerPage);
+
             BEGIN TRY
-                SELECT 
+                SELECT
                     statusId,
                     statusName,
                     statusCreationDate,
@@ -138,12 +175,12 @@ VALUES
                     statusEnable
                 FROM [SQM_CATALOGS].[TBL_Status] (NOLOCK)
                 ORDER BY statusId
-                OFFSET (@i_PageNumber - 1) * @i_RowsPerPage ROWS
+                OFFSET @w_Offset ROWS
                 FETCH NEXT @i_RowsPerPage ROWS ONLY;
 
                 SET @w_totalRows = @@ROWCOUNT;
 
-                IF (@w_totalRows > 0)
+                IF @w_totalRows > 0
                 BEGIN
                     SET @o_Numero = 200;
                     SET @o_MensajeUsuario = 'STATUS LISTADOS CORRECTAMENTE';
@@ -157,7 +194,13 @@ VALUES
             BEGIN CATCH
                 SET @o_Numero = 500;
                 SET @o_MensajeUsuario = 'ERROR AL LISTAR STATUS';
-                SET @o_MensajeTecnico = CONCAT_WS(' - ', 'ERROR AL LISTAR STATUS', ERROR_PROCEDURE(), ERROR_LINE(), ERROR_MESSAGE());
+                SET @o_MensajeTecnico = CONCAT_WS(
+                    ' - ',
+                    'ERROR AL LISTAR STATUS',
+                    ERROR_PROCEDURE(),
+                    ERROR_LINE(),
+                    ERROR_MESSAGE()
+                );
             END CATCH
         END
     END
